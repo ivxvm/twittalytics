@@ -1,0 +1,10 @@
+{
+    "extends": "@tsconfig/node16/tsconfig.json",
+    "compilerOptions": {
+        "target": "es2017",
+        "module": "es2022",
+        "moduleResolution": "node",
+    },
+    "include": ["src"],
+    "exclude": ["node_modules"],
+  }
