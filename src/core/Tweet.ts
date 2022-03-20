@@ -1,5 +1,6 @@
 export type Tweet = {
-    url: string,
-    author: string,
-    text: string,
+    tweetId: string;
+    authorId: string;
+    authorName: string;
+    text: string;
 };
