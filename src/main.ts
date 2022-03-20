@@ -29,6 +29,19 @@ class App {
         this.twitterClient = this.twitterApi.readOnly;
         this.mediaQueue = [];
         this.isProcessingMedia = false;
+        this.bindExitHandlers();
+    }
+
+    bindExitHandlers() {
+        for (const event of ['exit', 'SIGINT', 'SIGUSR1', 'SIGUSR2', 'uncaughtException', 'SIGTERM']) {
+            process.on(event, this.handleExit);
+        }
+    }
+
+    persistAllStores() {
+        this.imageStore.persist();
+        this.tweetStore.persist();
+        this.imageTweetsStore.persist();
     }
 
     async startStreamingTweets() {
@@ -84,11 +97,14 @@ class App {
         console.log('Starting store persistence job');
         setInterval(() => {
             console.log('Persisting stores');
-            this.imageStore.persist();
-            this.tweetStore.persist();
-            this.imageTweetsStore.persist();
+            this.persistAllStores();
         }, STORE_PERSIST_INTERVAL_MS);
     }
+
+    handleExit = () => {
+        console.log('Persisting stores before exit');
+        this.persistAllStores();
+    };
 }
 
 const app = new App();
