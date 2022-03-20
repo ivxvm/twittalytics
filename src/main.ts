@@ -1,4 +1,7 @@
 import { TwitterApi, ETwitterStreamEvent, MediaObjectV2, TwitterApiReadOnly } from 'twitter-api-v2';
+import { createServer } from 'http';
+import { parse } from 'url';
+import next from 'next';
 
 import { Image } from './core/Image';
 import { Tweet } from './core/Tweet';
@@ -34,11 +37,12 @@ class App {
 
     bindExitHandlers() {
         for (const event of ['exit', 'SIGINT', 'SIGUSR1', 'SIGUSR2', 'uncaughtException', 'SIGTERM']) {
-            process.on(event, this.handleExit);
+            process.on(event, (...args) => this.handleExit(event, args));
         }
     }
 
     persistAllStores() {
+        console.log('Persisting stores');
         this.imageStore.persist();
         this.tweetStore.persist();
         this.imageTweetsStore.persist();
@@ -96,14 +100,47 @@ class App {
     startStorePersistenceJob() {
         console.log('Starting store persistence job');
         setInterval(() => {
-            console.log('Persisting stores');
             this.persistAllStores();
         }, STORE_PERSIST_INTERVAL_MS);
     }
 
-    handleExit = () => {
-        console.log('Persisting stores before exit');
+    startFrontend() {
+        // https://nextjs.org/docs/advanced-features/custom-server
+        const dev = process.env.NODE_ENV !== 'production';
+        const hostname = 'localhost';
+        const port = 3000;
+        // when using middleware `hostname` and `port` must be provided below
+        const app = next({ dev, hostname, port, dir: './src/ui' });
+        const handle = app.getRequestHandler();
+        app.prepare().then(() => {
+            createServer(async (req, res) => {
+                try {
+                    // Be sure to pass `true` as the second argument to `url.parse`.
+                    // This tells it to parse the query portion of the URL.
+                    const parsedUrl = parse(req.url!, true);
+                    const { pathname, query } = parsedUrl;
+                    if (pathname === '/a') {
+                        await app.render(req, res, '/a', query);
+                    } else if (pathname === '/b') {
+                        await app.render(req, res, '/b', query);
+                    } else {
+                        await handle(req, res, parsedUrl);
+                    }
+                } catch (err) {
+                    console.error('Error occurred handling', req.url, err);
+                    res.statusCode = 500;
+                    res.end('internal server error');
+                }
+            }).listen(port, () => {
+                console.log(`Serving frontend at http://${hostname}:${port}`);
+            });
+        });
+    }
+
+    handleExit = (event: string, args: any) => {
+        console.log(`Received '${event}' with ${args}`);
         this.persistAllStores();
+        process.exit();
     };
 }
 
@@ -112,3 +149,4 @@ const app = new App();
 app.startStreamingTweets();
 app.startMediaProcessingJob();
 app.startStorePersistenceJob();
+app.startFrontend();
