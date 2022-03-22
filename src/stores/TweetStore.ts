@@ -8,7 +8,9 @@ export class TweetStore {
 
     constructor() {
         this.tweetByCompoundId = new Map();
-        const json = JSON.parse(fs.readFileSync(TWEETS_JSON_PATH, 'utf8')) as Tweet[];
+        const json: Tweet[] = fs.existsSync(TWEETS_JSON_PATH)
+            ? JSON.parse(fs.readFileSync(TWEETS_JSON_PATH, 'utf8'))
+            : [];
         for (const tweet of json) {
             this.add(tweet);
         }

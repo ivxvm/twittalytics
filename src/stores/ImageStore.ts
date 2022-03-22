@@ -1,40 +1,66 @@
 import https from 'https';
 import fs from 'fs';
-import resemble from 'resemblejs';
 import { ResembleSingleCallbackComparisonOptions, ResembleSingleCallbackComparisonResult } from 'resemblejs';
 import { MediaObjectV2 } from 'twitter-api-v2';
+import { StaticPool } from 'node-worker-threads-pool';
 import { Image } from '../core/Image';
 
+const IMAGES_DIR = './data/images';
 const IMAGE_JSON_PATH = './data/images.json';
 const IMAGE_MISMATCH_THRESHOLD = 25;
 
-const compareImages = (a: Buffer, b: Buffer, opts: ResembleSingleCallbackComparisonOptions) =>
-    new Promise<ResembleSingleCallbackComparisonResult>((resolve, reject) =>
-        resemble.compare(a, b, opts, (err, res) => (err ? reject(err) : resolve(res)))
-    );
+type FindSimilarImageTask = (param: {
+    imagePath: string;
+    otherImagesDir: string;
+    imageMismatchThreshold: number;
+}) => Promise<string | undefined>;
 
-type ImageJson = {
-    filename: string;
-    width: number;
-    height: number;
+const findSimilarImageTask: FindSimilarImageTask = async ({ imagePath, otherImagesDir, imageMismatchThreshold }) => {
+    const fs = require('fs');
+    const path = require('path');
+    const resemble = require('resemblejs');
+    const compareImages = (a: Buffer, b: Buffer, opts: ResembleSingleCallbackComparisonOptions) =>
+        new Promise<ResembleSingleCallbackComparisonResult>((resolve, reject) =>
+            resemble.compare(a, b, opts, (err: any, res: any) => (err ? reject(err) : resolve(res)))
+        );
+    console.log(`Searching for image similar to '${imagePath}'`);
+    const imageBuffer = await fs.promises.readFile(imagePath);
+    for (const otherImageFilename of await fs.promises.readdir(otherImagesDir)) {
+        const otherImagePath = `${otherImagesDir}/${otherImageFilename}`;
+        if (imagePath === otherImagePath) continue;
+        console.log(`Comparing images '${imagePath}' and '${otherImagePath}'`);
+        const otherImageBuffer = await fs.promises.readFile(otherImagePath);
+        const result = await compareImages(imageBuffer, otherImageBuffer, {
+            returnEarlyThreshold: imageMismatchThreshold + 5,
+            scaleToSameSize: true,
+            ignore: 'colors',
+        });
+        const mismatch = +result.misMatchPercentage;
+        if (mismatch < imageMismatchThreshold) {
+            console.log(`Found similar image '${otherImagePath}' (${100 - mismatch}% similar)`);
+            return path.basename(otherImagePath);
+        }
+    }
 };
 
 export class ImageStore {
     canonicalImagesByFilename: Map<string, Image>;
     tempImageCounter: number;
+    findSimilarImageThreadPool: StaticPool<FindSimilarImageTask>;
 
     constructor() {
         this.canonicalImagesByFilename = new Map();
         this.tempImageCounter = 0;
-        const imagesJson: ImageJson[] = JSON.parse(fs.readFileSync(IMAGE_JSON_PATH, 'utf8'));
-        for (const imageJson of imagesJson) {
-            this.canonicalImagesByFilename.set(imageJson.filename, {
-                filename: imageJson.filename,
-                width: imageJson.width,
-                height: imageJson.height,
-                buffer: fs.readFileSync(`./data/images/${imageJson.filename}`),
-            });
+        const images: Image[] = fs.existsSync(IMAGE_JSON_PATH)
+            ? JSON.parse(fs.readFileSync(IMAGE_JSON_PATH, 'utf8'))
+            : [];
+        for (const image of images) {
+            this.canonicalImagesByFilename.set(image.filename, image);
         }
+        this.findSimilarImageThreadPool = new StaticPool({
+            size: 1,
+            task: findSimilarImageTask,
+        });
     }
 
     addFromMediaObject = (media: MediaObjectV2) =>
@@ -54,34 +80,27 @@ export class ImageStore {
             const tempFile = fs.createWriteStream(tempFilePath);
             https
                 .get(media.url, (response) => {
-                    const chunks: any[] = [];
                     response.pipe(tempFile);
-                    response.on('data', (chunk) => chunks.push(chunk));
                     tempFile.on('finish', () => {
                         tempFile.close(async () => {
-                            const tempImageBuffer = Buffer.concat(chunks);
-                            for (const otherImage of this.canonicalImagesByFilename.values()) {
-                                const result = await compareImages(tempImageBuffer, otherImage.buffer, {
-                                    returnEarlyThreshold: IMAGE_MISMATCH_THRESHOLD + 5,
-                                    scaleToSameSize: true,
-                                    ignore: 'colors',
-                                });
-                                const mismatch = +result.misMatchPercentage;
-                                if (mismatch < IMAGE_MISMATCH_THRESHOLD) {
-                                    await fs.promises.rm(tempFilePath);
-                                    resolve(otherImage);
-                                    return;
-                                }
+                            const similarImageFilename = await this.findSimilarImageThreadPool.exec({
+                                imagePath: tempFilePath,
+                                otherImagesDir: IMAGES_DIR,
+                                imageMismatchThreshold: IMAGE_MISMATCH_THRESHOLD,
+                            });
+                            if (similarImageFilename) {
+                                await fs.promises.rm(tempFilePath);
+                                resolve(this.canonicalImagesByFilename.get(similarImageFilename)!);
+                            } else {
+                                await fs.promises.rename(tempFilePath, `${IMAGES_DIR}/${filename}`);
+                                const image = {
+                                    filename,
+                                    width: media.width || -1,
+                                    height: media.height || -1,
+                                };
+                                this.canonicalImagesByFilename.set(filename, image);
+                                resolve(image);
                             }
-                            await fs.promises.rename(tempFilePath, `./data/images/${filename}`);
-                            const image = {
-                                filename,
-                                width: media.width || -1,
-                                height: media.height || -1,
-                                buffer: tempImageBuffer,
-                            };
-                            this.canonicalImagesByFilename.set(filename, image);
-                            resolve(image);
                         });
                     });
                 })
@@ -91,11 +110,6 @@ export class ImageStore {
         });
 
     persist() {
-        const imagesJson: ImageJson[] = Array.from(this.canonicalImagesByFilename.values(), (image) => ({
-            filename: image.filename,
-            width: image.width,
-            height: image.height,
-        }));
-        fs.writeFileSync(IMAGE_JSON_PATH, JSON.stringify(imagesJson));
+        fs.writeFileSync(IMAGE_JSON_PATH, JSON.stringify(Array.from(this.canonicalImagesByFilename.values())));
     }
 }

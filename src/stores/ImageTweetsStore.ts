@@ -14,7 +14,9 @@ export class ImageTweetsStore {
 
     constructor() {
         this.compoundTweetIdsByImageFilename = new Map();
-        const json = JSON.parse(fs.readFileSync(IMAGE_TWEETS_JSON_PATH, 'utf8')) as ImageTweetsJson[];
+        const json: ImageTweetsJson[] = fs.existsSync(IMAGE_TWEETS_JSON_PATH)
+            ? JSON.parse(fs.readFileSync(IMAGE_TWEETS_JSON_PATH, 'utf8'))
+            : [];
         for (const assoc of json) {
             this.compoundTweetIdsByImageFilename.set(assoc.imageFilename, new Set(assoc.compoundTweetIds));
         }

@@ -1,3 +1,4 @@
+import fs from 'fs';
 import { TwitterApi, ETwitterStreamEvent, MediaObjectV2, TwitterApiReadOnly } from 'twitter-api-v2';
 import { createServer } from 'http';
 import { parse } from 'url';
@@ -142,6 +143,10 @@ class App {
         this.persistAllStores();
         process.exit();
     };
+}
+
+if (!fs.existsSync('./data/images')) {
+    fs.mkdirSync('./data/images', { recursive: true });
 }
 
 const app = new App();
