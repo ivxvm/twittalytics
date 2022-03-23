@@ -1,8 +1,10 @@
 import fs from 'fs';
+import path from 'path';
 import { TwitterApi, ETwitterStreamEvent, MediaObjectV2, TwitterApiReadOnly } from 'twitter-api-v2';
 import { createServer } from 'http';
 import { parse } from 'url';
 import express from 'express';
+import glob from 'glob';
 import next from 'next';
 
 import { Image } from './core/Image';
@@ -111,7 +113,7 @@ class App {
         const port = 3333;
         const app = express();
         app.get('/api/image/:filename', (req, res) => {
-            res.sendFile(`${IMAGES_DIR}/${req.params.filename}`);
+            res.sendFile(path.resolve(`${IMAGES_DIR}/${req.params.filename}`));
         });
         app.get('/api/image-tweets', (_, res) => {
             res.status(200).json(
@@ -163,8 +165,12 @@ class App {
     };
 }
 
-if (!fs.existsSync('./data/images')) {
-    fs.mkdirSync('./data/images', { recursive: true });
+if (!fs.existsSync(IMAGES_DIR)) {
+    fs.mkdirSync(IMAGES_DIR, { recursive: true });
+} else {
+    for (const path of glob.sync(`${IMAGES_DIR}/temp*`)) {
+        fs.rmSync(path);
+    }
 }
 
 const app = new App();
