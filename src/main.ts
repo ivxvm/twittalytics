@@ -2,12 +2,13 @@ import fs from 'fs';
 import { TwitterApi, ETwitterStreamEvent, MediaObjectV2, TwitterApiReadOnly } from 'twitter-api-v2';
 import { createServer } from 'http';
 import { parse } from 'url';
+import express from 'express';
 import next from 'next';
 
 import { Image } from './core/Image';
 import { Tweet } from './core/Tweet';
 
-import { ImageStore } from './stores/ImageStore';
+import { ImageStore, IMAGES_DIR } from './stores/ImageStore';
 import { TweetStore } from './stores/TweetStore';
 import { ImageTweetsStore } from './stores/ImageTweetsStore';
 
@@ -105,19 +106,36 @@ class App {
         }, STORE_PERSIST_INTERVAL_MS);
     }
 
+    startApiServer() {
+        const hostname = 'localhost';
+        const port = 3333;
+        const app = express();
+        app.get('/api/image/:filename', (req, res) => {
+            res.sendFile(`${IMAGES_DIR}/${req.params.filename}`);
+        });
+        app.get('/api/image-tweets', (_, res) => {
+            res.status(200).json(
+                Array.from(this.imageTweetsStore.compoundTweetIdsByImageFilename.entries(), ([filename, idsSet]) => [
+                    filename,
+                    Array.from(idsSet.values(), (id) => this.tweetStore.tweetByCompoundId.get(id)),
+                ])
+            );
+        });
+        app.listen(port, hostname, () => {
+            console.log(`Serving API at http://${hostname}:${port}`);
+        });
+    }
+
     startFrontend() {
         // https://nextjs.org/docs/advanced-features/custom-server
         const dev = process.env.NODE_ENV !== 'production';
         const hostname = 'localhost';
         const port = 3000;
-        // when using middleware `hostname` and `port` must be provided below
         const app = next({ dev, hostname, port, dir: './src/ui' });
         const handle = app.getRequestHandler();
         app.prepare().then(() => {
             createServer(async (req, res) => {
                 try {
-                    // Be sure to pass `true` as the second argument to `url.parse`.
-                    // This tells it to parse the query portion of the URL.
                     const parsedUrl = parse(req.url!, true);
                     const { pathname, query } = parsedUrl;
                     if (pathname === '/a') {
@@ -154,4 +172,5 @@ const app = new App();
 app.startStreamingTweets();
 app.startMediaProcessingJob();
 app.startStorePersistenceJob();
+app.startApiServer();
 app.startFrontend();

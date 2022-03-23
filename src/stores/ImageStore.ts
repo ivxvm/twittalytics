@@ -5,7 +5,7 @@ import { MediaObjectV2 } from 'twitter-api-v2';
 import { StaticPool } from 'node-worker-threads-pool';
 import { Image } from '../core/Image';
 
-const IMAGES_DIR = './data/images';
+export const IMAGES_DIR = './data/images';
 const IMAGE_JSON_PATH = './data/images.json';
 const IMAGE_MISMATCH_THRESHOLD = 25;
 
