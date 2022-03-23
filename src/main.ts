@@ -59,7 +59,7 @@ class App {
         });
         const stream = await this.twitterClient.v2.searchStream({
             // https://developer.twitter.com/en/docs/twitter-api/tweets/lookup/api-reference/get-tweets
-            'tweet.fields': ['author_id', 'id', 'attachments', 'text'],
+            'tweet.fields': ['author_id', 'id', 'attachments', 'text', 'created_at'],
             'media.fields': ['type', 'url', 'width', 'height'],
             'user.fields': ['name'],
             expansions: ['attachments.media_keys', 'author_id'],
@@ -71,17 +71,18 @@ class App {
                 authorId: rawTweet.data.author_id || 'none',
                 authorName: rawTweet.includes?.users?.[0]?.name || 'none',
                 text: rawTweet.data.text,
+                timestamp: Date.parse(rawTweet.data.created_at!),
             };
-            const sanitizedTweetPreview = tweet.text.slice(0, 32).replace(/(\r\n|\r|\n)/g, ' ');
+            const tweetPreviewText = tweet.text.slice(0, 32).replace(/(\r\n|\r|\n)/g, ' ');
             if (rawTweet.includes && rawTweet.includes.media) {
                 for (const media of rawTweet.includes.media) {
                     if (media.type === 'photo' && media.url) {
-                        console.log(`Enqueueing image tweet "${sanitizedTweetPreview}..." (${media.url})`);
+                        console.log(`Enqueueing image tweet "${tweetPreviewText}..." (${media.url})`);
                         this.mediaQueue.push([tweet, media]);
                     }
                 }
             } else {
-                console.log(`Skipping text tweet "${sanitizedTweetPreview}..."`);
+                console.log(`Skipping text tweet "${tweetPreviewText}..."`);
             }
         });
     }
@@ -119,7 +120,9 @@ class App {
             res.status(200).json(
                 Array.from(this.imageTweetsStore.compoundTweetIdsByImageFilename.entries(), ([filename, idsSet]) => [
                     filename,
-                    Array.from(idsSet.values(), (id) => this.tweetStore.tweetByCompoundId.get(id)),
+                    Array.from(idsSet.values(), (id) => this.tweetStore.tweetByCompoundId.get(id)!).sort(
+                        (t1, t2) => t2.timestamp! - t1.timestamp
+                    ),
                 ])
             );
         });

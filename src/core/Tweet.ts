@@ -3,4 +3,5 @@ export type Tweet = {
     authorId: string;
     authorName: string;
     text: string;
+    timestamp: number;
 };
